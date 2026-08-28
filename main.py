@@ -1,5 +1,5 @@
 # -------------------------------------------
-# HANITA BOT — የመጨረሻ የ Render / Railway ማስኬጃ ስሪት
+# HANITA BOT — የመጨረሻ የ Render እና GitHub ማስኬጃ ስሪት (የ 503 እና NoneType ስህተቶች የተስተካከሉበት)
 # -------------------------------------------
 
 import telebot
@@ -16,27 +16,26 @@ from google import genai
 from google.genai.errors import APIError
 
 # -------------------------------------------
-# 0. RENDER HEALTH CHECK SERVER (Render compatibility)
+# 0. RENDER HEALTH CHECK SERVER
 # -------------------------------------------
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/html")
         self.end_headers()
-        self.wfile.write(b"Hanita Bot is running live!")
+        self.wfile.write(b"Hanita Bot is live and running on Render!")
 
 def run_health_check_server():
     port = int(os.environ.get("PORT", 8080))
     server_address = ('', port)
     httpd = HTTPServer(server_address, HealthCheckHandler)
-    print(f"🌐 Render Health check server is running on port {port}...")
+    print(f"🌐 Render Health Check Server is running on port {port}...")
     httpd.serve_forever()
 
-# Background Thread ላይ Health Server ማስነሳት
 threading.Thread(target=run_health_check_server, daemon=True).start()
 
 # -------------------------------------------
-# 1. TOKEN & KEYS and CONFIG - ከ ENVIRONMENT VARIABLES ማንበብ
+# 1. TOKEN & KEYS and CONFIG
 # -------------------------------------------
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -54,7 +53,7 @@ GROUP_LINK = "https://t.me/hackersuperiors"
 OWNER_PHOTO_PATH = "owner_photo.jpg"
 
 if not BOT_TOKEN or not GEMINI_API_KEY:
-    print("❌ BOT_TOKEN ወይም GEMINI_API_KEY አልተገኘም። እባክዎ በ Environment Variables ውስጥ ያስገቡ።")
+    print("❌ BOT_TOKEN ወይም GEMINI_API_KEY አልተገኘም። እባክዎ በ Render Environment Variables ውስጥ ያስገቡ።")
     sys.exit(1)
 
 try:
@@ -64,7 +63,7 @@ except Exception as e:
     print(f"❌ BOT ወይም GEMINI Client ሲነሳ ስህተት ተፈጥሯል: {e}")
     sys.exit(1)
 
-GEMINI_MODEL = "gemini-3.6-flash"
+GEMINI_MODEL = "gemini-1.5-flash"
 
 
 # -------------------------------------------
@@ -112,6 +111,8 @@ def get_user_data(uid):
     return data.get(str(uid))
 
 def send_long_message(chat_id, text, parse_mode='Markdown', reply_to_message_id=None):
+    if not text:
+        return
     MAX = 4096
     if len(text) > MAX:
         bot.send_message(chat_id, text[0:MAX], parse_mode=parse_mode, reply_to_message_id=reply_to_message_id)
@@ -140,7 +141,6 @@ def start(message):
     user_id = message.from_user.id
 
     if check_group_membership(user_id):
-        # ሰላምታ ሰጥቶ በቀጥታ ወደ ምዝገባው ሂደት (ask_full_name) ያስገባል
         bot.send_message(
             message.chat.id,
             f"👋 ሰላም {message.from_user.first_name}!\n\n"
@@ -256,6 +256,7 @@ def get_full_name(message):
     user_id = str(message.from_user.id)
     full_name = message.text
 
+    # NoneType check
     if not full_name or len(full_name.split()) < 2:
         bot.send_message(
             message.chat.id,
@@ -281,7 +282,7 @@ def get_full_name(message):
 
 def get_address(message):
     user_id = str(message.from_user.id)
-    address = message.text
+    address = message.text or "አድራሻ አልተገለጸም"
 
     data = load_json(USER_DATA_FILE, {})
     user_data = data.get(user_id)
@@ -374,7 +375,7 @@ def send_owner_photo(message):
 
 
 # -------------------------------------------
-# 6. ADMIN TOOLS (Data View, User List, Log)
+# 6. ADMIN TOOLS
 # -------------------------------------------
 
 @bot.message_handler(commands=['listusers'])
@@ -455,6 +456,8 @@ def get_chat_history(user_id):
     return chat_history.get(str(user_id), [])
 
 def update_chat_history(user_id, role, text):
+    if not text:
+        return
     uid = str(user_id)
     if uid not in chat_history:
         chat_history[uid] = []
@@ -476,17 +479,20 @@ def gemini_auto(message):
     user_id = str(message.from_user.id)
     text = message.text
 
+    # NoneType Check: text ባዶ ከሆነ ወይም ጽሑፍ ካልሆነ
+    if not text:
+        return
+
     if message.from_user.id == ADMIN_ID:
         if text.lower().startswith("መልስ:") or text.lower().startswith("response:"):
             
             if message.reply_to_message:
-                
                 if str(message.reply_to_message.from_user.id) != str(bot.get_me().id):
                     bot.send_message(chat_id, "❌ መመሪያ ለመላክ መመለስ ያለብህ ለ**Hanita Forward** ለደረሰው መልዕክት ሳይሆን፣ Hanita Forward ያደረገችው የ**ተጠቃሚው ጥያቄ** ላይ ነው።")
                     return
                 
                 try:
-                    forwarded_text = message.reply_to_message.text
+                    forwarded_text = message.reply_to_message.text or ""
                     
                     import re
                     match = re.search(r"🆔 ID: (\d+)", forwarded_text)
@@ -498,11 +504,10 @@ def gemini_auto(message):
                          match = re.search(r"**አዲስ ውይይት ከ: @\w+**", forwarded_text)
 
                     if not match:
-                        bot.send_message(chat_id, "❌ Target User ID በሪፕላይ በተደረገው መልዕክት ጽሑፍ ውስጥ አልተገኘም። እባክህ **የመጀመሪያውን** Hanita የላከችውን Forwarded Message ተመልከት።")
+                        bot.send_message(chat_id, "❌ Target User ID በሪፕላይ በተደረገው መልዕክት ጽሑፍ ውስጥ አልተገኘም።")
                         return
 
                     target_user_id = match.group(1)
-                    
                     override_text = text[text.find(':') + 1:].strip()
                     target_user_id = str(target_user_id)
                     
@@ -567,35 +572,47 @@ def gemini_auto(message):
     )
 
     hanita_response_text = ""
-    
     history = get_chat_history(user_id)
     history.append({"role": "user", "parts": [{"text": text}]})
     
-    try:
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=history,
-            config={"system_instruction": system_prompt}
-        )
-        hanita_response_text = response.text 
+    # 📌 503 UNAVAILABLE ኤረርን ለመከላከል የ Retry Logic አደረጃጀት
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=history,
+                config={"system_instruction": system_prompt}
+            )
+            if response and response.text:
+                hanita_response_text = response.text
+                break
+        except APIError as e:
+            if "503" in str(e) or "UNAVAILABLE" in str(e):
+                if attempt < max_retries - 1:
+                    time.sleep(2 * (attempt + 1)) # ከ 2 ሰከንድ በኋላ እንደገና ይሞክራል
+                    continue
+            hanita_response_text = f"❌ ይቅርታ፣ ከ Gemini API ጋር መገናኘት አልተቻለም። ስህተት: {e}"
+            break
+        except Exception as e:
+            hanita_response_text = f"❌ ስህተት ተፈጠረ: {e}"
+            break
+
+    if not hanita_response_text:
+        hanita_response_text = "⚠️ ይቅርታ፣ በአሁኑ ሰዓት ሰርቨሩ ላይ ከፍተኛ ጭንቀት ስላለ መልስ ማመንጨት አልተቻለም። እባክዎ ጥቂት ቆይተው እንደገና ይሞክሩ።"
+
+    # ምላሹን መላክ
+    if chat_id == TELEGRAM_GROUP_ID:
+        reply_to = message.message_id
+        send_long_message(chat_id, hanita_response_text, reply_to_message_id=reply_to)
+    else:
+        send_long_message(chat_id, hanita_response_text)
         
-        if chat_id == TELEGRAM_GROUP_ID:
-            reply_to = message.message_id
-            send_long_message(chat_id, hanita_response_text, reply_to_message_id=reply_to)
-        else:
-            send_long_message(chat_id, hanita_response_text)
-            
-        update_chat_history(user_id, "user", text)
-        update_chat_history(user_id, "model", hanita_response_text)
-        log_chat(user_id, text, hanita_response_text)
+    update_chat_history(user_id, "user", text)
+    update_chat_history(user_id, "model", hanita_response_text)
+    log_chat(user_id, text, hanita_response_text)
 
-    except APIError as e:
-        hanita_response_text = f"❌ ይቅርታ፣ ከ Gemini API ጋር መገናኘት አልተቻለም። ስህተት: {e}"
-        bot.send_message(chat_id, hanita_response_text)
-    except Exception as e:
-        hanita_response_text = f"❌ ስህተት ተፈጠረ: {e}"
-        bot.send_message(chat_id, hanita_response_text)
-
+    # ለአድሚን ማስተላለፍ
     if user_id != str(ADMIN_ID) and ADMIN_ID != 0:
         try:
             forward_message = (
@@ -614,7 +631,7 @@ def gemini_auto(message):
             print(f"❌ Admin message forwarding failed: {e}")
 
 # -------------------------------------------
-# 8. RUN BOT (Error Handling)
+# 8. RUN BOT
 # -------------------------------------------
 
 print("🤖 Hanita Bot እየተነሳ ነው...")
