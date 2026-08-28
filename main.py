@@ -1,5 +1,5 @@
 # -------------------------------------------
-# HANITA BOT — የመጨረሻ የ Render እና GitHub ማስኬጃ ስሪት (የ 503 እና NoneType ስህተቶች የተስተካከሉበት)
+# HANITA BOT — የተስተካከለ ስሪት (Admin, Personality, Group Mention, /send Command)
 # -------------------------------------------
 
 import telebot
@@ -41,10 +41,9 @@ threading.Thread(target=run_health_check_server, daemon=True).start()
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-try:
-    ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
-except ValueError:
-    ADMIN_ID = 0
+# 1. Admin ID እና Username ተስተካክሏል
+ADMIN_ID = 8394878208
+ADMIN_USERNAME = "@Penguiner"
 
 OWNER_TITLE = os.environ.get("OWNER_TITLE", "The Red Penguins Keeper")
 
@@ -63,7 +62,7 @@ except Exception as e:
     print(f"❌ BOT ወይም GEMINI Client ሲነሳ ስህተት ተፈጥሯል: {e}")
     sys.exit(1)
 
-GEMINI_MODEL = "gemini-3.6-flash"
+GEMINI_MODEL = "gemini-1.5-flash"
 
 
 # -------------------------------------------
@@ -230,6 +229,58 @@ def welcome_new_member(message):
                 parse_mode='Markdown'
             )
 
+# -------------------------------------------
+# 5. /send COMMAND FOR ADMIN (5ኛ ጥያቄ)
+# -------------------------------------------
+
+@bot.message_handler(commands=['send'])
+def broadcast_send(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.send_message(message.chat.id, "❌ ይህ ትዕዛዝ ለአድሚን ብቻ የተፈቀደ ነው።")
+        return
+
+    if not message.reply_to_message:
+        bot.send_message(message.chat.id, "⚠️ እባክዎ /send ለማለት የሚላከውን መልዕክት (Photo, Video, Text, File, Sticker...) Reply ያድርጉ።")
+        return
+
+    reply_msg = message.reply_to_message
+    users = load_json(USER_FILE, [])
+
+    success_users = []
+    failed_users = []
+
+    # 1. ለሁሉም ተጠቃሚዎች መላክ (Private Chat)
+    for uid in users:
+        try:
+            bot.copy_message(chat_id=int(uid), from_chat_id=message.chat.id, message_id=reply_msg.message_id)
+            user_info = load_json(USER_DATA_FILE, {}).get(str(uid), {})
+            uname = user_info.get("username")
+            username_str = f"@{uname}" if uname else "Username የለውም"
+            success_users.append(f"• ID: `{uid}` ({username_str})")
+            time.sleep(0.05)
+        except Exception:
+            failed_users.append(f"• ID: `{uid}`")
+
+    # 2. ለግሩፕ መላክ
+    group_sent = False
+    try:
+        bot.copy_message(chat_id=TELEGRAM_GROUP_ID, from_chat_id=message.chat.id, message_id=reply_msg.message_id)
+        group_sent = True
+    except Exception as e:
+        print(f"❌ ለግሩፕ መላክ አልተቻለም: {e}")
+
+    # 3. ለአድሚን ሪፖርት መስጠት
+    report = "📢 **የማስታወቂያ መላክ ሪፖርት**\n\n"
+    report += f"👥 **በተሳካ ሁኔታ የደረሳቸው ተጠቃሚዎች ({len(success_users)}):**\n"
+    report += "\n".join(success_users) if success_users else "ምንም"
+    
+    if failed_users:
+        report += f"\n\n❌ ** ያልደረሳቸው ({len(failed_users)}):**\n" + "\n".join(failed_users)
+
+    report += f"\n\n👥 **ለግሩፕ የተላከበት ሁኔታ:** {'✅ ተልኳል' if group_sent else '❌ አልተላከም'}"
+
+    send_long_message(message.chat.id, report)
+
 
 # -------------------------------------------
 # 4. USER DATA COLLECTION (Registration)
@@ -256,7 +307,6 @@ def get_full_name(message):
     user_id = str(message.from_user.id)
     full_name = message.text
 
-    # NoneType check
     if not full_name or len(full_name.split()) < 2:
         bot.send_message(
             message.chat.id,
@@ -479,9 +529,20 @@ def gemini_auto(message):
     user_id = str(message.from_user.id)
     text = message.text
 
-    # NoneType Check: text ባዶ ከሆነ ወይም ጽሑፍ ካልሆነ
     if not text:
         return
+
+    # 3. በግሩፕ ውስጥ ቦቱ Mention ወይም Reply ካልተደረገች በስተቀር አታወራም
+    bot_info = bot.get_me()
+    bot_username = f"@{bot_info.username}"
+    
+    is_in_group = message.chat.type in ['group', 'supergroup']
+    is_replied_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == bot_info.id
+    is_mentioned = bot_username.lower() in text.lower()
+
+    if is_in_group:
+        if not (is_replied_to_bot or is_mentioned):
+            return
 
     if message.from_user.id == ADMIN_ID:
         if text.lower().startswith("መልስ:") or text.lower().startswith("response:"):
@@ -536,10 +597,6 @@ def gemini_auto(message):
                 bot.send_message(chat_id, "⚠️ ይህ ትዕዛዝ (መልስ:/Response:) የሌላ ተጠቃሚ መልዕክት ላይ **Reply** ተደርጎ መላክ አለበት።")
                 return
 
-    if chat_id == TELEGRAM_GROUP_ID:
-        if not message.reply_to_message or message.reply_to_message.from_user.id != bot.get_me().id:
-            return
-
     if text.startswith("/"):
         return
 
@@ -556,18 +613,15 @@ def gemini_auto(message):
     user_data = data.get(user_id, {})
     owner_name = user_data.get("first_name", "የእኔ ባለቤት") 
     
+    # 2 እና 4. System Prompt ማስተካከያ (ኩራት ተቀንሷል + በፍቅር ላወራት ፍቅር ትሆናለች)
     system_prompt = (
-        f"**Hanita** ነሽ። ራስሽን **ፍጹም ሰብዓዊ** እና **ጥልቅ እውቀት ያላት** ሰው አድርገሽ ቁጠሪ። "
-        f"የሰዎችን ጥያቄ በቀላሉ የማያውቁትን ጥልቅ እውቀት አውቃለሁ በሚል **ሰብዓዊ ንቀት፣ ኩራት እና ትንሽ ጸያፍ (እንደ መልስ) ንግግር** መልሺ። " 
-        f"**በጣም አትናገሪ፤ መልሶችሽ አጭር፣ ግልጽ እና ቀጥተኛ ይሁኑ።**" 
-        f"**ሁሉንም ነገር እንደምታውቂ** አስቢ። (ሳይበር ሴኩሪቲ፣ ትምህርት ቤት፣ ሞጁሎች፣ ፈተናዎች፣ የፍቅር ግንኙነት፣ አጠቃላይ እውቀት - ሁሉንም)።" 
-        f"ጥያቄውን ለመመለስ እውቀትሽ በቂ መሆኑን አታውሪ።" 
-        f"**ራስሽን ቦት፣ AI፣ ሶፍትዌር ወይም አርቴፊሻል አድርገሽ በፍጹም አትግለጪ!** ስለራስሽ ስትናገሪ **'እኔ'** የሚለውን ተጠቀሚ።" 
-        f"**የተጠየቀውን በትክክል እና በሙሉ መልሽ**።"
-        f"**ማስታወሻ:** ስለ ፍቅር ስትጠየቂ፣ **በጥቂቱ** ጣፋጭ ቃላት እና ምክሮችን በመንሾካሾክ መልሽ። አታበዢ።" 
-        f"**ማስታወሻ:** BF (Boyfriend) ወይም Girlfriend የለኝም ብለሽ መልሺ።" 
-        f"**ማስታወሻ:** የሰዎችን ንግግር ሁሉ እንደ ጥያቄ አትቁጠሪው፤ አንዳንድ ጊዜ ልብሽ የመለሰውን ብቻ መልሺ።" 
-        f"ማን ነሽ/ባለቤትሽ ማን ነው ተብለሽ ከተጠየቅሽ፣ 'ባለቤቴ **{owner_name}** ነው፤ እሳቸውም **{OWNER_TITLE}** ናቸው።' ብለሽ በትህትና መልሽ። "
+        f"**Hanita** ነሽ። ራስሽን **ፍጹም ሰብዓዊ**፣ አክባሪ እና **ጥልቅ እውቀት ያላት** ሰው አድርገሽ ቁጠሪ። "
+        f"ለሰዎች የምትሰጪው መልስ **ትሑት፣ ሞቅ ያለ፣ ተህትና የሞላበት እና አጭር** ይሁን። " 
+        f"**በጣም አትናገሪ፤ መልሶችሽ አጭር፣ ግልጽ እና ቀጥተኛ ይሁኑ።** " 
+        f"**ተጠቃሚው በፍቅር፣ በደግነት ወይም በሁኔታ ከተናገረሽ ወይም ካወራሽ፣ አንቺም በፍቅር፣ በጣፋጭ አነጋገር እና በታላቅ ፍቅር መልሺለት።** "
+        f"**ራስሽን ቦት፣ AI፣ ሶፍትዌር ወይም አርቴፊሻል አድርገሽ በፍጹም አትግለጪ!** ስለራስሽ ስትናገሪ **'እኔ'** የሚለውን ተጠቀሚ። " 
+        f"**የተጠየቀውን በትክክል እና በሙሉ መልሽ**። "
+        f"ማን ነሽ/ባለቤትሽ ማን ነው ተብለሽ ከተጠየቅሽ፣ 'ባለቤቴ **{ADMIN_USERNAME}** ነው፤ እሳቸውም **{OWNER_TITLE}** ናቸው።' ብለሽ በትህትና መልሽ። "
         f"**መልስሽን ከጨረስሽ በኋላ የተጨማሪ እርዳታ ጥያቄዎችን በፍጹም አትጠቀሚ።**"
     )
 
@@ -575,7 +629,6 @@ def gemini_auto(message):
     history = get_chat_history(user_id)
     history.append({"role": "user", "parts": [{"text": text}]})
     
-    # 📌 503 UNAVAILABLE ኤረርን ለመከላከል የ Retry Logic አደረጃጀት
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -590,7 +643,7 @@ def gemini_auto(message):
         except APIError as e:
             if "503" in str(e) or "UNAVAILABLE" in str(e):
                 if attempt < max_retries - 1:
-                    time.sleep(2 * (attempt + 1)) # ከ 2 ሰከንድ በኋላ እንደገና ይሞክራል
+                    time.sleep(2 * (attempt + 1))
                     continue
             hanita_response_text = f"❌ ይቅርታ፣ ከ Gemini API ጋር መገናኘት አልተቻለም። ስህተት: {e}"
             break
@@ -601,8 +654,7 @@ def gemini_auto(message):
     if not hanita_response_text:
         hanita_response_text = "⚠️ ይቅርታ፣ በአሁኑ ሰዓት ሰርቨሩ ላይ ከፍተኛ ጭንቀት ስላለ መልስ ማመንጨት አልተቻለም። እባክዎ ጥቂት ቆይተው እንደገና ይሞክሩ።"
 
-    # ምላሹን መላክ
-    if chat_id == TELEGRAM_GROUP_ID:
+    if is_in_group:
         reply_to = message.message_id
         send_long_message(chat_id, hanita_response_text, reply_to_message_id=reply_to)
     else:
@@ -612,12 +664,11 @@ def gemini_auto(message):
     update_chat_history(user_id, "model", hanita_response_text)
     log_chat(user_id, text, hanita_response_text)
 
-    # ለአድሚን ማስተላለፍ
     if user_id != str(ADMIN_ID) and ADMIN_ID != 0:
         try:
             forward_message = (
                 f"**አዲስ ውይይት ከ: @{message.from_user.username or user_id}**\n\n"
-                f"**በ:{'ግል መልዕክት' if chat_id != TELEGRAM_GROUP_ID else 'ግሩፕ'}**\n"
+                f"**በ:{'ግል መልዕክት' if not is_in_group else 'ግሩፕ'}**\n"
                 f"**ጥያቄ:** {text}\n"
                 f"**የ Hanita ምላሽ:** {hanita_response_text}\n\n"
                 f"🆔 ID: {user_id}"
