@@ -1,5 +1,5 @@
 # -------------------------------------------
-# HANITA BOT — የመጨረሻ የ Render / Railway ማስኬጃ ስሪት
+# HANITA BOT — የመጨረሻ የ Render እና GitHub ማስኬጃ ስሪት
 # -------------------------------------------
 
 import telebot
@@ -16,20 +16,21 @@ from google import genai
 from google.genai.errors import APIError
 
 # -------------------------------------------
-# 0. RENDER HEALTH CHECK SERVER (Render compatibility)
+# 0. RENDER HEALTH CHECK SERVER (Render Web Service / Port Support)
 # -------------------------------------------
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/html")
         self.end_headers()
-        self.wfile.write(b"Hanita Bot is running live!")
+        self.wfile.write(b"Hanita Bot is live and running on Render!")
 
 def run_health_check_server():
+    # Render የሚሰጠውን PORT ወይም default 8080 ይጠቀማል
     port = int(os.environ.get("PORT", 8080))
     server_address = ('', port)
     httpd = HTTPServer(server_address, HealthCheckHandler)
-    print(f"🌐 Render Health check server is running on port {port}...")
+    print(f"🌐 Render Health Check Server is running on port {port}...")
     httpd.serve_forever()
 
 # Background Thread ላይ Health Server ማስነሳት
@@ -54,7 +55,7 @@ GROUP_LINK = "https://t.me/hackersuperiors"
 OWNER_PHOTO_PATH = "owner_photo.jpg"
 
 if not BOT_TOKEN or not GEMINI_API_KEY:
-    print("❌ BOT_TOKEN ወይም GEMINI_API_KEY አልተገኘም። እባክዎ በ Environment Variables ውስጥ ያስገቡ።")
+    print("❌ BOT_TOKEN ወይም GEMINI_API_KEY አልተገኘም። እባክዎ በ Render Environment Variables ውስጥ ያስገቡ።")
     sys.exit(1)
 
 try:
