@@ -61,7 +61,7 @@ except Exception as e:
     print(f"❌ BOT ወይም GEMINI Client ሲነሳ ስህተት ተፈጥሯል: {e}")
     sys.exit(1)
 
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
 
 
 # -------------------------------------------
